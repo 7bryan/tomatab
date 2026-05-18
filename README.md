@@ -25,8 +25,8 @@ A cross-browser Pomodoro timer extension for Chrome, Brave, and Firefox.
 ### Install & Build
 
 ```bash
-git clone https://github.com/yourname/pomodoro.git
-cd pomodoro
+git clone https://github.com/7bryan/tomatab.git
+cd tomatab
 npm install
 npm run build
 ```
