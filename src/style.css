@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@source "../popup.html";
+
+@theme {
+  --color-brand-primary: #ff5733;
+}
+
+/* Tweak to ensure the browser extension popup doesn't warp or show scrollbars */
+body {
+  overflow: hidden;
+}
+
+/* Remove default arrows/spinners from number input boxes */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
