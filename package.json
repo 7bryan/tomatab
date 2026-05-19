@@ -2,8 +2,10 @@
   "name": "pomodoro",
   "version": "1.0.0",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc --watch"
+    "build": "tsc && npx @tailwindcss/cli -i ./src/style.css -o ./dist/output.css",
+    "watch": "concurrently \"tsc --watch\" \"npx @tailwindcss/cli -i ./src/style.css -o ./dist/output.css --watch\"",
+    "watch:ts": "tsc --watch",
+    "watch:css": "npx @tailwindcss/cli -i ./src/style.css -o ./dist/output.css --watch"
   },
   "dependencies": {
     "@tailwindcss/cli": "^4.3.0",
@@ -13,6 +15,7 @@
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "@types/webextension-polyfill": "^0.12.5",
+    "concurrently": "^9.2.1",
     "typescript": "^6.0.3"
   }
 }

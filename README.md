@@ -1,4 +1,4 @@
-# Pomodoro Timer — Browser Extension
+# Tomatab — Browser Extension
 
 A cross-browser Pomodoro timer extension for Chrome, Brave, and Firefox.
 
