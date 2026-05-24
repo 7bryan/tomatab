@@ -18,6 +18,16 @@
     "service_worker": "dist/background.js",
     "type": "module"
   },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "pomodoro@7bryan",

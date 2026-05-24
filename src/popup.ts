@@ -7,22 +7,19 @@ const settingsPanel = document.getElementById('settingsPanel') as HTMLDivElement
 const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
 const workDurationInput = document.getElementById('workDuration') as HTMLInputElement;
 const breakDurationInput = document.getElementById('breakDuration') as HTMLInputElement;
-
-// npx @tailwindcss/cli -i ./src/style.css -o ./dist/output.css --watch
-
 const taskInput = document.getElementById('taskInput') as HTMLInputElement;
 
-// load saved task
+// Load saved task
 chrome.storage.local.get('currentTask', (result) => {
   taskInput.value = result.currentTask || '';
 });
 
-// save on change
+// Save task on change
 taskInput.addEventListener('input', () => {
   chrome.storage.local.set({ currentTask: taskInput.value });
 });
 
-// Toggle Settings
+// Toggle settings panel
 settingsBtn.addEventListener('click', () => {
   settingsPanel.classList.toggle('hidden');
 });
@@ -44,57 +41,66 @@ async function sendMessage(msg: object): Promise<any> {
   throw new Error('Could not reach background service worker');
 }
 
-// add this inside updateUI()
+function applyState(state: any) {
+  timerDisplay.textContent = formatTime(state.secondsLeft);
+  timerLabel.textContent = state.mode === 'work' ? 'Work Session' : 'Break Time';
+
+  workDurationInput.value = String(state.workMinutes);
+  breakDurationInput.value = String(state.breakMinutes);
+
+  if (state.mode === 'break') {
+    timerLabel.classList.replace('text-slate-400', 'text-emerald-400');
+  } else {
+    timerLabel.classList.replace('text-emerald-400', 'text-slate-400');
+  }
+
+  startStopBtn.textContent = state.isRunning ? 'Pause' : 'Start';
+  if (state.isRunning) {
+    startStopBtn.classList.add('bg-amber-600');
+  } else {
+    startStopBtn.classList.remove('bg-amber-600');
+  }
+}
+
 async function updateUI() {
   try {
     const state = await sendMessage({ action: 'getState' });
-
-    timerDisplay.textContent = formatTime(state.secondsLeft);
-    timerLabel.textContent = state.mode === 'work' ? 'Work Session' : 'Break Time';
-
-    // sync settings inputs with actual saved values
-    workDurationInput.value = String(state.workMinutes);
-    breakDurationInput.value = String(state.breakMinutes);
-
-    if (state.mode === 'break') {
-      timerLabel.classList.replace('text-slate-400', 'text-emerald-400');
-    } else {
-      timerLabel.classList.replace('text-emerald-400', 'text-slate-400');
-    }
-
-    startStopBtn.textContent = state.isRunning ? 'Pause' : 'Start';
-    if (state.isRunning) {
-      startStopBtn.classList.add('bg-amber-600');
-    } else {
-      startStopBtn.classList.remove('bg-amber-600');
-    }
+    applyState(state);
   } catch (err) {
     console.error("Popup disconnected from background.", err);
   }
 }
 
+// Button clicks now use the state returned directly from background
+// so UI updates instantly without a separate getState round-trip
 startStopBtn.addEventListener('click', async () => {
-  await sendMessage({ action: 'toggleTimer' });
-  updateUI();
+  try {
+    const state = await sendMessage({ action: 'toggleTimer' });
+    applyState(state);
+  } catch { await updateUI(); }
 });
 
 resetBtn.addEventListener('click', async () => {
-  await sendMessage({ action: 'resetTimer' });
-  updateUI();
+  try {
+    const state = await sendMessage({ action: 'resetTimer' });
+    applyState(state);
+  } catch { await updateUI(); }
 });
 
 saveSettingsBtn.addEventListener('click', async () => {
   const workMins = parseInt(workDurationInput.value) || 25;
   const breakMins = parseInt(breakDurationInput.value) || 5;
 
-  await sendMessage({
-    action: 'updateConfig',
-    workDuration: workMins,
-    breakDuration: breakMins
-  });
+  try {
+    const state = await sendMessage({
+      action: 'updateConfig',
+      workDuration: workMins,
+      breakDuration: breakMins
+    });
+    applyState(state);
+  } catch { await updateUI(); }
 
   settingsPanel.classList.add('hidden');
-  updateUI();
 });
 
 chrome.runtime.onMessage.addListener((message: any) => {

@@ -7,6 +7,7 @@ const DEFAULT_STATE = {
 };
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
+let timeUpTriggered = false; // guard against double-fire
 
 async function getState() {
   const result = await chrome.storage.local.get(DEFAULT_STATE);
@@ -20,16 +21,30 @@ async function setState(partial: Partial<typeof DEFAULT_STATE>) {
 async function startTimer() {
   const state = await getState();
   if (timerInterval) clearInterval(timerInterval);
+  timeUpTriggered = false;
 
   await setState({ isRunning: true });
 
   timerInterval = setInterval(async () => {
     const s = await getState();
-    if (s.secondsLeft > 0) {
-      await setState({ secondsLeft: s.secondsLeft - 1 });
-      chrome.runtime.sendMessage({ action: 'tick', secondsLeft: s.secondsLeft - 1 }).catch(() => { });
-    } else {
-      await triggerTimeUp();
+
+    if (s.secondsLeft <= 0) {
+      if (!timeUpTriggered) {
+        timeUpTriggered = true;
+        await triggerTimeUp();
+      }
+      return;
+    }
+
+    const next = s.secondsLeft - 1;
+    await setState({ secondsLeft: next });
+    chrome.runtime.sendMessage({ action: 'tick', secondsLeft: next }).catch(() => { });
+
+    if (next === 0) {
+      if (!timeUpTriggered) {
+        timeUpTriggered = true;
+        await triggerTimeUp();
+      }
     }
   }, 1000);
 
@@ -45,57 +60,89 @@ async function pauseTimer() {
 
 async function triggerTimeUp() {
   const state = await getState();
-  await pauseTimer();
 
+  // Stop everything
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = null;
+  await setState({ isRunning: false });
+  chrome.alarms.clear('pomodoro-alarm');
+
+  // Switch mode
   const nextMode = state.mode === 'work' ? 'break' : 'work';
   const nextSeconds = nextMode === 'work' ? state.workMinutes * 60 : state.breakMinutes * 60;
-
   await setState({ mode: nextMode, secondsLeft: nextSeconds });
 
-  chrome.notifications.create('pomodoro-done', {
-    type: 'basic',
-    title: "Time's up!",
-    message: state.mode === 'work' ? 'Take a break!' : 'Back to work!',
-    iconUrl: 'icon.png'
+  // Show notification
+  chrome.notifications.clear('pomodoro-done', () => {
+    chrome.notifications.create('pomodoro-done', {
+      type: 'basic',
+      title: state.mode === 'work' ? '🍅 Work session done!' : '☕ Break over!',
+      message: state.mode === 'work' ? 'Time to take a break.' : 'Back to work!',
+      iconUrl: chrome.runtime.getURL('icon.png'),
+      priority: 2
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Notification error:', chrome.runtime.lastError.message);
+      } else {
+        console.log('Notification sent successfully');
+      }
+    });
   });
 
   chrome.runtime.sendMessage({ action: 'stateChanged' }).catch(() => { });
 }
 
+// Alarm watchdog — only fires if service worker was asleep
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'pomodoro-alarm') {
-    triggerTimeUp();
+    if (!timeUpTriggered) {
+      timeUpTriggered = true;
+      triggerTimeUp();
+    }
   }
 });
 
 chrome.runtime.onMessage.addListener((request: any, _sender: any, sendResponse: any) => {
-  if (request.action === 'getState') {
-    getState().then(sendResponse);
-    return true; // keeps the message channel open for async response
-  }
-
-  if (request.action === 'toggleTimer') {
-    getState().then(s => s.isRunning ? pauseTimer() : startTimer());
-  }
-
-  if (request.action === 'resetTimer') {
-    getState().then(s => pauseTimer().then(() => setState({
-      mode: 'work',
-      secondsLeft: s.workMinutes * 60  // uses actual saved value
-    })));
-  }
-
-  if (request.action === 'updateConfig') {
-    pauseTimer().then(() => setState({
-      workMinutes: request.workDuration,
-      breakMinutes: request.breakDuration,
-      mode: 'work',
-      secondsLeft: request.workDuration * 60
-    }));
-  }
 
   if (request.action === 'ping') {
     sendResponse({ status: 'alive' });
+    return true;
+  }
+
+  if (request.action === 'getState') {
+    getState().then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'toggleTimer') {
+    getState()
+      .then(s => s.isRunning ? pauseTimer() : startTimer())
+      .then(() => getState())
+      .then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'resetTimer') {
+    getState()
+      .then(s => pauseTimer().then(() => setState({
+        mode: 'work',
+        secondsLeft: s.workMinutes * 60
+      })))
+      .then(() => getState())
+      .then(sendResponse);
+    return true;
+  }
+
+  if (request.action === 'updateConfig') {
+    pauseTimer()
+      .then(() => setState({
+        workMinutes: request.workDuration,
+        breakMinutes: request.breakDuration,
+        mode: 'work',
+        secondsLeft: request.workDuration * 60
+      }))
+      .then(() => getState())
+      .then(sendResponse);
     return true;
   }
 });
