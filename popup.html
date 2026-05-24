@@ -8,6 +8,18 @@
 
 <body class="w-[320px] bg-slate-900 text-slate-100 font-sans p-4 antialiased selection:bg-brand-primary/30">
 
+  <!-- Timer done overlay -->
+  <div id="doneOverlay"
+    class="hidden absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center gap-3 z-50 p-6">
+    <div id="doneEmoji" class="text-5xl">🍅</div>
+    <div id="doneTitle" class="text-xl font-bold text-brand-primary text-center">Work session done!</div>
+    <div id="doneMessage" class="text-sm text-slate-400 text-center">Time to take a break.</div>
+    <button id="dismissBtn"
+      class="mt-2 bg-brand-primary hover:opacity-90 active:scale-[0.98] text-white font-medium text-sm py-2 px-6 rounded-lg cursor-pointer transition-all">
+      Got it 👍
+    </button>
+  </div>
+
   <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between">
       <h1 class="text-lg font-bold tracking-wide text-brand-primary flex items-center gap-1.5">
@@ -59,7 +71,6 @@
       Apply Settings
     </button>
   </div>
-  <!-- your UI -->
 
   <script src="dist/popup.js"></script>
 </body>

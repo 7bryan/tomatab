@@ -7,7 +7,7 @@ const DEFAULT_STATE = {
 };
 
 let timerInterval: ReturnType<typeof setInterval> | null = null;
-let timeUpTriggered = false; // guard against double-fire
+let timeUpTriggered = false;
 
 async function getState() {
   const result = await chrome.storage.local.get(DEFAULT_STATE);
@@ -60,6 +60,7 @@ async function pauseTimer() {
 
 async function triggerTimeUp() {
   const state = await getState();
+  const prevMode = state.mode; // save before switching
 
   // Stop everything
   if (timerInterval) clearInterval(timerInterval);
@@ -68,16 +69,23 @@ async function triggerTimeUp() {
   chrome.alarms.clear('pomodoro-alarm');
 
   // Switch mode
-  const nextMode = state.mode === 'work' ? 'break' : 'work';
+  const nextMode = prevMode === 'work' ? 'break' : 'work';
   const nextSeconds = nextMode === 'work' ? state.workMinutes * 60 : state.breakMinutes * 60;
   await setState({ mode: nextMode, secondsLeft: nextSeconds });
 
-  // Show notification
+  // Store prevMode so overlay knows what to show when popup opens
+  await chrome.storage.local.set({ pendingNotification: prevMode });
+
+  // Badge on extension icon
+  chrome.action.setBadgeText({ text: '!' });
+  chrome.action.setBadgeBackgroundColor({ color: '#e63b2e' });
+
+  // OS notification
   chrome.notifications.clear('pomodoro-done', () => {
     chrome.notifications.create('pomodoro-done', {
       type: 'basic',
-      title: state.mode === 'work' ? '🍅 Work session done!' : '☕ Break over!',
-      message: state.mode === 'work' ? 'Time to take a break.' : 'Back to work!',
+      title: prevMode === 'work' ? '🍅 Work session done!' : '☕ Break over!',
+      message: prevMode === 'work' ? 'Time to take a break.' : 'Back to work!',
       iconUrl: chrome.runtime.getURL('icon.png'),
       priority: 2
     }, () => {
@@ -89,10 +97,10 @@ async function triggerTimeUp() {
     });
   });
 
-  chrome.runtime.sendMessage({ action: 'stateChanged' }).catch(() => { });
+  // Tell popup if it's open — pass prevMode so overlay knows what to show
+  chrome.runtime.sendMessage({ action: 'stateChanged', prevMode }).catch(() => { });
 }
 
-// Alarm watchdog — only fires if service worker was asleep
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'pomodoro-alarm') {
     if (!timeUpTriggered) {

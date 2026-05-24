@@ -8,6 +8,11 @@ const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButton
 const workDurationInput = document.getElementById('workDuration') as HTMLInputElement;
 const breakDurationInput = document.getElementById('breakDuration') as HTMLInputElement;
 const taskInput = document.getElementById('taskInput') as HTMLInputElement;
+const doneOverlay = document.getElementById('doneOverlay') as HTMLDivElement;
+const doneEmoji = document.getElementById('doneEmoji') as HTMLDivElement;
+const doneTitle = document.getElementById('doneTitle') as HTMLDivElement;
+const doneMessage = document.getElementById('doneMessage') as HTMLDivElement;
+const dismissBtn = document.getElementById('dismissBtn') as HTMLButtonElement;
 
 // Load saved task
 chrome.storage.local.get('currentTask', (result) => {
@@ -23,6 +28,24 @@ taskInput.addEventListener('input', () => {
 settingsBtn.addEventListener('click', () => {
   settingsPanel.classList.toggle('hidden');
 });
+
+// Dismiss overlay
+dismissBtn.addEventListener('click', () => {
+  doneOverlay.classList.add('hidden');
+});
+
+function showOverlay(prevMode: 'work' | 'break') {
+  if (prevMode === 'work') {
+    doneEmoji.textContent = '🍅';
+    doneTitle.textContent = 'Work session done!';
+    doneMessage.textContent = 'Time to take a break.';
+  } else {
+    doneEmoji.textContent = '☕';
+    doneTitle.textContent = 'Break over!';
+    doneMessage.textContent = 'Back to work!';
+  }
+  doneOverlay.classList.remove('hidden');
+}
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -71,8 +94,6 @@ async function updateUI() {
   }
 }
 
-// Button clicks now use the state returned directly from background
-// so UI updates instantly without a separate getState round-trip
 startStopBtn.addEventListener('click', async () => {
   try {
     const state = await sendMessage({ action: 'toggleTimer' });
@@ -107,14 +128,26 @@ chrome.runtime.onMessage.addListener((message: any) => {
   if (message.action === 'tick') {
     timerDisplay.textContent = formatTime(message.secondsLeft);
   } else if (message.action === 'stateChanged') {
+    // popup is open when timer ends — show overlay immediately
+    showOverlay(message.prevMode);
     updateUI();
   }
 });
 
-// Wake up service worker first, then load state
+// Wake up service worker, clear badge, check pending notification
 (async () => {
+  chrome.action.setBadgeText({ text: '' });
   try {
     await chrome.runtime.sendMessage({ action: 'ping' });
-  } catch { /* ignore, just waking it up */ }
+  } catch { }
+
+  // Check if timer ended while popup was closed
+  chrome.storage.local.get('pendingNotification', (result) => {
+    if (result.pendingNotification) {
+      chrome.storage.local.remove('pendingNotification');
+      showOverlay(result.pendingNotification); // prevMode stored as the value
+    }
+  });
+
   updateUI();
 })();
