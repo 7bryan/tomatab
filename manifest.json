@@ -6,7 +6,8 @@
   "permissions": [
     "alarms",
     "notifications",
-    "storage"
+    "storage",
+    "offscreen"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -22,7 +23,8 @@
     {
       "resources": [
         "icon.png",
-        "alarm.mp3"
+        "alarm.mp3",
+        "offscreen.html"
       ],
       "matches": [
         "<all_urls>"

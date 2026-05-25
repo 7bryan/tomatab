@@ -18,6 +18,19 @@ async function setState(partial: Partial<typeof DEFAULT_STATE>) {
   await chrome.storage.local.set(partial);
 }
 
+async function playAlarmSound() {
+  // Create offscreen document if it doesn't exist
+  const existing = await chrome.offscreen.hasDocument();
+  if (!existing) {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+      justification: 'Play alarm sound when timer ends'
+    });
+  }
+  chrome.runtime.sendMessage({ action: 'playAlarm' });
+}
+
 async function startTimer() {
   const state = await getState();
   if (timerInterval) clearInterval(timerInterval);
@@ -79,6 +92,9 @@ async function triggerTimeUp() {
   // Badge on extension icon
   chrome.action.setBadgeText({ text: '!' });
   chrome.action.setBadgeBackgroundColor({ color: '#e63b2e' });
+
+  //play alarm sound via offscreen
+  await playAlarmSound();
 
   // OS notification
   chrome.notifications.clear('pomodoro-done', () => {
