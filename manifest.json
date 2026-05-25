@@ -21,7 +21,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "icon.png"
+        "icon.png",
+        "alarm.mp3"
       ],
       "matches": [
         "<all_urls>"
