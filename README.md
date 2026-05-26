@@ -60,7 +60,8 @@ pomodoro/
 ├── src/
 │   ├── background.ts   # background service worker, alarms, notifications
 │   ├── popup.ts        # popup UI logic
-│   └── style.css       # styles
+│   ├── offscreen.ts    # audio playback context
+│   └── style.css       # styles   
 ├── dist/               # compiled output (auto-generated, not in git)
 ├── icon.png
 ├── manifest.json
