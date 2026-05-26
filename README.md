@@ -4,9 +4,13 @@ A cross-browser Pomodoro timer extension for Chrome, Brave, and Firefox.
 
 ## Features
 
-- 25 minute focus timer
-- Break notifications
+- 25 minute focus timer with customizable work/break durations
+- Alarm sound when timer ends
+- In-popup overlay notification when session completes
+- Badge indicator on extension icon
+- OS notification when popup is closed
 - Runs in the background even when popup is closed
+- Task input to track what you're working on
 
 ## Browser Support
 
