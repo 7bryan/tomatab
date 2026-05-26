@@ -34,11 +34,11 @@ dismissBtn.addEventListener('click', () => {
   doneOverlay.classList.add('hidden');
 });
 
-function playAlarm() {
-  const audio = new Audio(chrome.runtime.getURL('alarm.mp3'));
-  audio.volume = 0.7;
-  audio.play().catch(() => { });
-}
+// function playAlarm() {
+//   const audio = new Audio(chrome.runtime.getURL('alarm.mp3'));
+//   audio.volume = 0.7;
+//   audio.play().catch(() => { });
+// }
 
 function showOverlay(prevMode: 'work' | 'break') {
   if (prevMode === 'work') {
@@ -136,7 +136,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
   } else if (message.action === 'stateChanged') {
     // popup is open when timer ends — show overlay immediately
     showOverlay(message.prevMode);
-    playAlarm();
+    // playAlarm();
     updateUI();
   }
 });
@@ -153,7 +153,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
     if (result.pendingNotification) {
       chrome.storage.local.remove('pendingNotification');
       showOverlay(result.pendingNotification); // prevMode stored as the value
-      playAlarm();
+      // playAlarm();
     }
   });
 
