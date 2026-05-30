@@ -40,14 +40,14 @@ npm run build
 1. Go to `chrome://extensions`
 2. Enable **Developer mode** (top right toggle)
 3. Click **Load unpacked**
-4. Select the `tomotab/` folder
+4. Select the `tomatab/` folder
 
 ### Load in Firefox
 
 1. Go to `about:debugging`
 2. Click **This Firefox**
 3. Click **Load Temporary Add-on**
-4. Select the `manifest.json` file inside the `tomotab/` folder
+4. Select the `manifest.json` file inside the `tomatab/` folder
 
 ## Development
 
@@ -60,7 +60,7 @@ This auto-compiles TypeScript on every save. After saving, just hit the refresh 
 ## Project Structure
 
 ```
-tomotab/
+tomatab/
 ├── src/
 │   ├── background.ts   # background service worker, alarms, notifications
 │   ├── popup.ts        # popup UI logic
