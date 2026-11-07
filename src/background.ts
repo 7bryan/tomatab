@@ -1,171 +1,170 @@
-const DEFAULT_STATE = {
-  workMinutes: 25,
-  breakMinutes: 5,
-  secondsLeft: 25 * 60,
-  isRunning: false,
-  mode: 'work' as 'work' | 'break',
-};
+type Mode = "work" | "break";
 
-let timerInterval: ReturnType<typeof setInterval> | null = null;
-let timeUpTriggered = false;
-
-async function getState() {
-  const result = await chrome.storage.local.get(DEFAULT_STATE);
-  return result as typeof DEFAULT_STATE;
+interface State {
+  workMinutes: number;
+  breakMinutes: number;
+  mode: Mode;
+  isRunning: boolean;
+  endTime: number | null; // timestamp (ms) when the timer finishes, only while running
+  remainingMs: number; // time left while paused/idle
 }
 
-async function setState(partial: Partial<typeof DEFAULT_STATE>) {
+const ALARM = "pomodoro-alarm";
+
+const DEFAULT_STATE: State = {
+  workMinutes: 25,
+  breakMinutes: 5,
+  mode: "work",
+  isRunning: false,
+  endTime: null,
+  remainingMs: 25 * 60 * 1000,
+};
+
+async function getState(): Promise<State> {
+  return (await chrome.storage.local.get(DEFAULT_STATE)) as State;
+}
+
+async function setState(partial: Partial<State>) {
   await chrome.storage.local.set(partial);
 }
 
 async function playAlarmSound() {
-  // Create offscreen document if it doesn't exist
   const existing = await chrome.offscreen.hasDocument();
   if (!existing) {
     await chrome.offscreen.createDocument({
-      url: 'offscreen.html',
+      url: "offscreen.html",
       reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
-      justification: 'Play alarm sound when timer ends'
+      justification: "Play alarm sound when timer ends",
     });
   }
-  chrome.runtime.sendMessage({ action: 'playAlarm' });
+  chrome.runtime.sendMessage({ action: "playAlarm" });
 }
 
 async function startTimer() {
-  const state = await getState();
-  if (timerInterval) clearInterval(timerInterval);
-  timeUpTriggered = false;
-
-  await setState({ isRunning: true });
-
-  timerInterval = setInterval(async () => {
-    const s = await getState();
-
-    if (s.secondsLeft <= 0) {
-      if (!timeUpTriggered) {
-        timeUpTriggered = true;
-        await triggerTimeUp();
-      }
-      return;
-    }
-
-    const next = s.secondsLeft - 1;
-    await setState({ secondsLeft: next });
-    chrome.runtime.sendMessage({ action: 'tick', secondsLeft: next }).catch(() => { });
-
-    if (next === 0) {
-      if (!timeUpTriggered) {
-        timeUpTriggered = true;
-        await triggerTimeUp();
-      }
-    }
-  }, 1000);
-
-  chrome.alarms.create('pomodoro-alarm', { delayInMinutes: state.secondsLeft / 60 });
+  const s = await getState();
+  if (s.isRunning) return;
+  const endTime = Date.now() + s.remainingMs;
+  await setState({ isRunning: true, endTime });
+  await chrome.alarms.create(ALARM, { when: endTime });
 }
 
 async function pauseTimer() {
-  await setState({ isRunning: false });
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = null;
-  chrome.alarms.clear('pomodoro-alarm');
+  const s = await getState();
+  await chrome.alarms.clear(ALARM);
+  if (!s.isRunning || s.endTime === null) {
+    await setState({ isRunning: false, endTime: null });
+    return;
+  }
+  const remainingMs = Math.max(0, s.endTime - Date.now());
+  await setState({ isRunning: false, endTime: null, remainingMs });
 }
 
 async function triggerTimeUp() {
   const state = await getState();
-  const prevMode = state.mode; // save before switching
+  if (!state.isRunning) return; // already handled (guards against duplicate alarms)
 
-  // Stop everything
-  if (timerInterval) clearInterval(timerInterval);
-  timerInterval = null;
-  await setState({ isRunning: false });
-  chrome.alarms.clear('pomodoro-alarm');
+  const prevMode = state.mode;
+  const nextMode: Mode = prevMode === "work" ? "break" : "work";
+  const nextMs =
+    (nextMode === "work" ? state.workMinutes : state.breakMinutes) * 60 * 1000;
 
-  // Switch mode
-  const nextMode = prevMode === 'work' ? 'break' : 'work';
-  const nextSeconds = nextMode === 'work' ? state.workMinutes * 60 : state.breakMinutes * 60;
-  await setState({ mode: nextMode, secondsLeft: nextSeconds });
-
-  // Store prevMode so overlay knows what to show when popup opens
+  await chrome.alarms.clear(ALARM);
+  await setState({
+    isRunning: false,
+    endTime: null,
+    mode: nextMode,
+    remainingMs: nextMs,
+  });
   await chrome.storage.local.set({ pendingNotification: prevMode });
 
-  // Badge on extension icon
-  chrome.action.setBadgeText({ text: '!' });
-  chrome.action.setBadgeBackgroundColor({ color: '#e63b2e' });
+  chrome.action.setBadgeText({ text: "!" });
+  chrome.action.setBadgeBackgroundColor({ color: "#e63b2e" });
 
-  //play alarm sound via offscreen
   await playAlarmSound();
 
-  // OS notification
-  chrome.notifications.clear('pomodoro-done', () => {
-    chrome.notifications.create('pomodoro-done', {
-      type: 'basic',
-      title: prevMode === 'work' ? '🍅 Work session done!' : '☕ Break over!',
-      message: prevMode === 'work' ? 'Time to take a break.' : 'Back to work!',
-      iconUrl: chrome.runtime.getURL('icon.png'),
-      priority: 2
-    }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Notification error:', chrome.runtime.lastError.message);
-      } else {
-        console.log('Notification sent successfully');
-      }
-    });
+  chrome.notifications.clear("pomodoro-done", () => {
+    chrome.notifications.create(
+      "pomodoro-done",
+      {
+        type: "basic",
+        title: prevMode === "work" ? "🍅 Work session done!" : "☕ Break over!",
+        message:
+          prevMode === "work" ? "Time to take a break." : "Back to work!",
+        iconUrl: chrome.runtime.getURL("icon.png"),
+        priority: 2,
+      },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "Notification error:",
+            chrome.runtime.lastError.message,
+          );
+        }
+      },
+    );
   });
 
-  // Tell popup if it's open — pass prevMode so overlay knows what to show
-  chrome.runtime.sendMessage({ action: 'stateChanged', prevMode }).catch(() => { });
+  chrome.runtime
+    .sendMessage({ action: "stateChanged", prevMode })
+    .catch(() => {});
+}
+
+// If the browser was closed while a timer was running, finish it on next launch
+async function checkExpired() {
+  const s = await getState();
+  if (s.isRunning && s.endTime !== null && s.endTime <= Date.now()) {
+    await triggerTimeUp();
+  }
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'pomodoro-alarm') {
-    if (!timeUpTriggered) {
-      timeUpTriggered = true;
-      triggerTimeUp();
-    }
-  }
+  if (alarm.name === ALARM) triggerTimeUp();
 });
 
-chrome.runtime.onMessage.addListener((request: any, _sender: any, sendResponse: any) => {
+chrome.runtime.onStartup.addListener(checkExpired);
 
-  if (request.action === 'ping') {
-    sendResponse({ status: 'alive' });
+chrome.runtime.onMessage.addListener((request: any, _sender, sendResponse) => {
+  if (request.action === "ping") {
+    sendResponse({ status: "alive" });
     return true;
   }
 
-  if (request.action === 'getState') {
+  if (request.action === "getState") {
     getState().then(sendResponse);
     return true;
   }
 
-  if (request.action === 'toggleTimer') {
+  if (request.action === "toggleTimer") {
     getState()
-      .then(s => s.isRunning ? pauseTimer() : startTimer())
-      .then(() => getState())
+      .then((s) => (s.isRunning ? pauseTimer() : startTimer()))
+      .then(getState)
       .then(sendResponse);
     return true;
   }
 
-  if (request.action === 'resetTimer') {
+  if (request.action === "resetTimer") {
     getState()
-      .then(s => pauseTimer().then(() => setState({
-        mode: 'work',
-        secondsLeft: s.workMinutes * 60
-      })))
-      .then(() => getState())
+      .then((s) =>
+        pauseTimer().then(() =>
+          setState({ mode: "work", remainingMs: s.workMinutes * 60 * 1000 }),
+        ),
+      )
+      .then(getState)
       .then(sendResponse);
     return true;
   }
 
-  if (request.action === 'updateConfig') {
+  if (request.action === "updateConfig") {
     pauseTimer()
-      .then(() => setState({
-        workMinutes: request.workDuration,
-        breakMinutes: request.breakDuration,
-        mode: 'work',
-        secondsLeft: request.workDuration * 60
-      }))
-      .then(() => getState())
+      .then(() =>
+        setState({
+          workMinutes: request.workDuration,
+          breakMinutes: request.breakDuration,
+          mode: "work",
+          remainingMs: request.workDuration * 60 * 1000,
+        }),
+      )
+      .then(getState)
       .then(sendResponse);
     return true;
   }
