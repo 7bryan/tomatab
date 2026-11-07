@@ -117,6 +117,8 @@ function renderTime() {
   }
 }
 
+setInterval(renderTime, 250);
+
 function applyState(state: any) {
   currentState = state;
   renderTime();
@@ -127,9 +129,16 @@ function applyState(state: any) {
   breakDurationInput.value = String(state.breakMinutes);
 
   if (state.mode === "break") {
-    timerLabel.classList.add("bg-amber-600");
+    timerLabel.classList.replace("text-slate-400", "text-emerald-400");
   } else {
-    timerLabel.classList.remove("bg-amber-600");
+    timerLabel.classList.replace("text-emerald-400", "text-slate-400");
+  }
+
+  startStopBtn.textContent = state.isRunning ? "Pause" : "Start";
+  if (state.isRunning) {
+    startStopBtn.classList.add("bg-amber-600");
+  } else {
+    startStopBtn.classList.remove("bg-amber-600");
   }
 }
 
