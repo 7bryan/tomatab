@@ -4,8 +4,8 @@ A cross-browser Pomodoro timer extension for Chrome, Brave, and Firefox.
 
 ## Features
 
-- 25 minute focus timer with customizable work/break durations
-- Alarm sound when timer ends
+- 25 minute focus timer with customizable work/break durations (max 120 minutes)
+- Alarm sound when timer ends (customizable alarm sound)
 - In-popup overlay notification when session completes
 - Badge indicator on extension icon
 - OS notification when popup is closed
@@ -15,15 +15,16 @@ A cross-browser Pomodoro timer extension for Chrome, Brave, and Firefox.
 ## Browser Support
 
 | Browser | Supported |
-|---------|-----------|
-| Chrome  | ✓ |
-| Brave   | ✓ |
-| Firefox | ✓ |
+| ------- | --------- |
+| Chrome  | ✓         |
+| Brave   | ✓         |
+| Firefox | ✓         |
 
 ## Setup
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) v14 or higher
+
+- [Node.js](https://nodejs.org/) v20 or higher
 - npm
 
 ### Install & Build
@@ -65,7 +66,7 @@ tomatab/
 │   ├── background.ts   # background service worker, alarms, notifications
 │   ├── popup.ts        # popup UI logic
 │   ├── offscreen.ts    # audio playback context
-│   └── style.css       # styles   
+│   └── style.css       # styles
 ├── dist/               # compiled output (auto-generated, not in git)
 ├── icon.png
 ├── manifest.json
