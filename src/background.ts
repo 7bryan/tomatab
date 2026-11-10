@@ -5,11 +5,14 @@ interface State {
   breakMinutes: number;
   mode: Mode;
   isRunning: boolean;
-  endTime: number | null; // timestamp (ms) when the timer finishes, only while running
-  remainingMs: number; // time left while paused/idle
+  endTime: number | null;
+  remainingMs: number;
 }
 
 const ALARM = "pomodoro-alarm";
+const NOTIFICATION_ID = "pomodoro-done";
+const MIN_MINUTES = 1;
+const MAX_MINUTES = 120;
 
 const DEFAULT_STATE: State = {
   workMinutes: 25,
@@ -20,6 +23,21 @@ const DEFAULT_STATE: State = {
   remainingMs: 25 * 60 * 1000,
 };
 
+function clampMinutes(value: unknown, fallback: number): number {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, n));
+}
+
+function sessionMs(
+  durations: Pick<State, "workMinutes" | "breakMinutes">,
+  mode: Mode,
+): number {
+  const minutes =
+    mode === "work" ? durations.workMinutes : durations.breakMinutes;
+  return minutes * 60 * 1000;
+}
+
 async function getState(): Promise<State> {
   return (await chrome.storage.local.get(DEFAULT_STATE)) as State;
 }
@@ -28,16 +46,25 @@ async function setState(partial: Partial<State>) {
   await chrome.storage.local.set(partial);
 }
 
+async function closeAlarmDocument() {
+  try {
+    if (await chrome.offscreen.hasDocument()) {
+      await chrome.offscreen.closeDocument();
+    }
+  } catch {}
+}
+
 async function playAlarmSound() {
-  const existing = await chrome.offscreen.hasDocument();
-  if (!existing) {
+  try {
+    await closeAlarmDocument();
     await chrome.offscreen.createDocument({
       url: "offscreen.html",
       reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
       justification: "Play alarm sound when timer ends",
     });
+  } catch (err) {
+    console.error("Could not play alarm sound:", err);
   }
-  chrome.runtime.sendMessage({ action: "playAlarm" });
 }
 
 async function startTimer() {
@@ -59,61 +86,98 @@ async function pauseTimer() {
   await setState({ isRunning: false, endTime: null, remainingMs });
 }
 
-async function triggerTimeUp() {
-  const state = await getState();
-  if (!state.isRunning) return; // already handled (guards against duplicate alarms)
-
-  const prevMode = state.mode;
-  const nextMode: Mode = prevMode === "work" ? "break" : "work";
-  const nextMs =
-    (nextMode === "work" ? state.workMinutes : state.breakMinutes) * 60 * 1000;
-
-  await chrome.alarms.clear(ALARM);
-  await setState({
-    isRunning: false,
-    endTime: null,
-    mode: nextMode,
-    remainingMs: nextMs,
-  });
-  await chrome.storage.local.set({ pendingNotification: prevMode });
-
-  chrome.action.setBadgeText({ text: "!" });
-  chrome.action.setBadgeBackgroundColor({ color: "#e63b2e" });
-
-  await playAlarmSound();
-
-  chrome.notifications.clear("pomodoro-done", () => {
-    chrome.notifications.create(
-      "pomodoro-done",
-      {
-        type: "basic",
-        title: prevMode === "work" ? "🍅 Work session done!" : "☕ Break over!",
-        message:
-          prevMode === "work" ? "Time to take a break." : "Back to work!",
-        iconUrl: chrome.runtime.getURL("icon.png"),
-        priority: 2,
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "Notification error:",
-            chrome.runtime.lastError.message,
-          );
-        }
-      },
-    );
-  });
-
-  chrome.runtime
-    .sendMessage({ action: "stateChanged", prevMode })
-    .catch(() => {});
+async function resetTimer() {
+  const s = await getState();
+  await pauseTimer();
+  await setState({ mode: "work", remainingMs: sessionMs(s, "work") });
+  await chrome.storage.local.remove("pendingNotification");
+  await chrome.action.setBadgeText({ text: "" });
+  await closeAlarmDocument();
 }
 
-// If the browser was closed while a timer was running, finish it on next launch
-async function checkExpired() {
+async function updateConfig(workInput: unknown, breakInput: unknown) {
   const s = await getState();
-  if (s.isRunning && s.endTime !== null && s.endTime <= Date.now()) {
+  const workMinutes = clampMinutes(workInput, s.workMinutes);
+  const breakMinutes = clampMinutes(breakInput, s.breakMinutes);
+
+  const untouched = !s.isRunning && s.remainingMs === sessionMs(s, s.mode);
+
+  const update: Partial<State> = { workMinutes, breakMinutes };
+  if (untouched) {
+    update.remainingMs = sessionMs({ workMinutes, breakMinutes }, s.mode);
+  }
+  await setState(update);
+}
+
+let finishing = false;
+
+async function triggerTimeUp() {
+  if (finishing) return;
+  finishing = true;
+  try {
+    const state = await getState();
+    if (!state.isRunning) return;
+
+    const prevMode = state.mode;
+    const nextMode: Mode = prevMode === "work" ? "break" : "work";
+
+    await chrome.alarms.clear(ALARM);
+    await setState({
+      isRunning: false,
+      endTime: null,
+      mode: nextMode,
+      remainingMs: sessionMs(state, nextMode),
+    });
+    await chrome.storage.local.set({ pendingNotification: prevMode });
+
+    chrome.action.setBadgeText({ text: "!" });
+    chrome.action.setBadgeBackgroundColor({ color: "#e63b2e" });
+
+    await playAlarmSound();
+
+    chrome.notifications.clear(NOTIFICATION_ID, () => {
+      chrome.notifications.create(
+        NOTIFICATION_ID,
+        {
+          type: "basic",
+          title:
+            prevMode === "work" ? "🍅 Work session done!" : "☕ Break over!",
+          message:
+            prevMode === "work" ? "Time to take a break." : "Back to work!",
+          iconUrl: chrome.runtime.getURL("icon.png"),
+          priority: 2,
+        },
+        () => {
+          if (chrome.runtime.lastError) {
+            console.error(
+              "Notification error:",
+              chrome.runtime.lastError.message,
+            );
+          }
+        },
+      );
+    });
+
+    chrome.runtime
+      .sendMessage({ action: "stateChanged", prevMode })
+      .catch(() => {});
+  } finally {
+    finishing = false;
+  }
+}
+
+async function recoverTimer() {
+  const s = await getState();
+  if (!s.isRunning || s.endTime === null) return;
+
+  if (s.endTime <= Date.now()) {
     await triggerTimeUp();
+    return;
+  }
+
+  const alarm = await chrome.alarms.get(ALARM);
+  if (!alarm) {
+    await chrome.alarms.create(ALARM, { when: s.endTime });
   }
 }
 
@@ -121,12 +185,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) triggerTimeUp();
 });
 
-chrome.runtime.onStartup.addListener(checkExpired);
+chrome.runtime.onStartup.addListener(recoverTimer);
 
 chrome.runtime.onMessage.addListener((request: any, _sender, sendResponse) => {
   if (request.action === "ping") {
     sendResponse({ status: "alive" });
     return true;
+  }
+
+  if (request.action === "alarmFinished") {
+    closeAlarmDocument();
+    return false;
   }
 
   if (request.action === "getState") {
@@ -143,29 +212,16 @@ chrome.runtime.onMessage.addListener((request: any, _sender, sendResponse) => {
   }
 
   if (request.action === "resetTimer") {
-    getState()
-      .then((s) =>
-        pauseTimer().then(() =>
-          setState({ mode: "work", remainingMs: s.workMinutes * 60 * 1000 }),
-        ),
-      )
-      .then(getState)
-      .then(sendResponse);
+    resetTimer().then(getState).then(sendResponse);
     return true;
   }
 
   if (request.action === "updateConfig") {
-    pauseTimer()
-      .then(() =>
-        setState({
-          workMinutes: request.workDuration,
-          breakMinutes: request.breakDuration,
-          mode: "work",
-          remainingMs: request.workDuration * 60 * 1000,
-        }),
-      )
+    updateConfig(request.workDuration, request.breakDuration)
       .then(getState)
       .then(sendResponse);
     return true;
   }
 });
+
+recoverTimer().catch(console.error);
