@@ -24,31 +24,24 @@ const doneTitle = document.getElementById("doneTitle") as HTMLDivElement;
 const doneMessage = document.getElementById("doneMessage") as HTMLDivElement;
 const dismissBtn = document.getElementById("dismissBtn") as HTMLButtonElement;
 
-// Load saved task
+const INPUT_MIN_MINUTES = 1;
+const INPUT_MAX_MINUTES = 120;
+
 chrome.storage.local.get("currentTask", (result) => {
   taskInput.value = result.currentTask || "";
 });
 
-// Save task on change
 taskInput.addEventListener("input", () => {
   chrome.storage.local.set({ currentTask: taskInput.value });
 });
 
-// Toggle settings panel
 settingsBtn.addEventListener("click", () => {
   settingsPanel.classList.toggle("hidden");
 });
 
-// Dismiss overlay
 dismissBtn.addEventListener("click", () => {
   doneOverlay.classList.add("hidden");
 });
-
-// function playAlarm() {
-//   const audio = new Audio(chrome.runtime.getURL('alarm.mp3'));
-//   audio.volume = 0.7;
-//   audio.play().catch(() => { });
-// }
 
 function showOverlay(prevMode: "work" | "break") {
   if (prevMode === "work") {
@@ -69,6 +62,12 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+function clampInput(raw: string, fallback: number): number {
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(INPUT_MAX_MINUTES, Math.max(INPUT_MIN_MINUTES, n));
+}
+
 async function sendMessage(msg: object): Promise<any> {
   for (let i = 0; i < 3; i++) {
     try {
@@ -80,28 +79,8 @@ async function sendMessage(msg: object): Promise<any> {
   throw new Error("Could not reach background service worker");
 }
 
-// function applyState(state: any) {
-//   timerDisplay.textContent = formatTime(state.secondsLeft);
-//   timerLabel.textContent = state.mode === 'work' ? 'Work Session' : 'Break Time';
-//
-//   workDurationInput.value = String(state.workMinutes);
-//   breakDurationInput.value = String(state.breakMinutes);
-//
-//   if (state.mode === 'break') {
-//     timerLabel.classList.replace('text-slate-400', 'text-emerald-400');
-//   } else {
-//     timerLabel.classList.replace('text-emerald-400', 'text-slate-400');
-//   }
-//
-//   startStopBtn.textContent = state.isRunning ? 'Pause' : 'Start';
-//   if (state.isRunning) {
-//     startStopBtn.classList.add('bg-amber-600');
-//   } else {
-//     startStopBtn.classList.remove('bg-amber-600');
-//   }
-// }
-
 let currentState: any = null;
+let tickHandle: number | null = null;
 
 function getRemainingSeconds(state: any): number {
   const ms =
@@ -117,29 +96,33 @@ function renderTime() {
   }
 }
 
-setInterval(renderTime, 250);
+function syncTicker() {
+  const running = Boolean(currentState?.isRunning);
+  if (running && tickHandle === null) {
+    tickHandle = window.setInterval(renderTime, 250);
+  } else if (!running && tickHandle !== null) {
+    window.clearInterval(tickHandle);
+    tickHandle = null;
+  }
+}
 
 function applyState(state: any) {
   currentState = state;
   renderTime();
+  syncTicker();
+
   timerLabel.textContent =
     state.mode === "work" ? "Work Session" : "Break Time";
 
   workDurationInput.value = String(state.workMinutes);
   breakDurationInput.value = String(state.breakMinutes);
 
-  if (state.mode === "break") {
-    timerLabel.classList.replace("text-slate-400", "text-emerald-400");
-  } else {
-    timerLabel.classList.replace("text-emerald-400", "text-slate-400");
-  }
+  timerLabel.classList.toggle("text-slate-400", state.mode !== "break");
+  timerLabel.classList.toggle("text-emerald-400", state.mode === "break");
 
   startStopBtn.textContent = state.isRunning ? "Pause" : "Start";
-  if (state.isRunning) {
-    startStopBtn.classList.add("bg-amber-600");
-  } else {
-    startStopBtn.classList.remove("bg-amber-600");
-  }
+  startStopBtn.classList.toggle("bg-brand-primary", !state.isRunning);
+  startStopBtn.classList.toggle("bg-amber-600", state.isRunning);
 }
 
 async function updateUI() {
@@ -161,6 +144,7 @@ startStopBtn.addEventListener("click", async () => {
 });
 
 resetBtn.addEventListener("click", async () => {
+  doneOverlay.classList.add("hidden");
   try {
     const state = await sendMessage({ action: "resetTimer" });
     applyState(state);
@@ -170,8 +154,16 @@ resetBtn.addEventListener("click", async () => {
 });
 
 saveSettingsBtn.addEventListener("click", async () => {
-  const workMins = parseInt(workDurationInput.value) || 25;
-  const breakMins = parseInt(breakDurationInput.value) || 5;
+  const workMins = clampInput(
+    workDurationInput.value,
+    currentState?.workMinutes ?? 25,
+  );
+  const breakMins = clampInput(
+    breakDurationInput.value,
+    currentState?.breakMinutes ?? 5,
+  );
+  workDurationInput.value = String(workMins);
+  breakDurationInput.value = String(breakMins);
 
   try {
     const state = await sendMessage({
@@ -195,19 +187,16 @@ chrome.runtime.onMessage.addListener((message: any) => {
   }
 });
 
-// Wake up service worker, clear badge, check pending notification
 (async () => {
   chrome.action.setBadgeText({ text: "" });
   try {
     await chrome.runtime.sendMessage({ action: "ping" });
   } catch {}
 
-  // Check if timer ended while popup was closed
   chrome.storage.local.get("pendingNotification", (result) => {
     if (result.pendingNotification) {
       chrome.storage.local.remove("pendingNotification");
-      showOverlay(result.pendingNotification); // prevMode stored as the value
-      // playAlarm();
+      showOverlay(result.pendingNotification);
     }
   });
 
