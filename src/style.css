@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @source "../popup.html";
+@source "./popup.ts";
 
 @theme {
   --color-brand-primary: #ff5733;
